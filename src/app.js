@@ -16,6 +16,7 @@ const salesRoutes = require('./routes/salesRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const preciousMetalRateRoutes = require('./routes/preciousMetalRateRoutes');
 const auditLogRoutes = require('./routes/auditLogRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -25,7 +26,7 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.use(express.json());
 app.use(morgan('dev'));
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+app.use('/api/health', healthRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
