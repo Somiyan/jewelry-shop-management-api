@@ -39,6 +39,9 @@ app.use('/api/financial', financialRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/categories', categoryRoutes);
+// Same router on both paths: /api/rates is the documented surface, while
+// /api/precious-metal-rates stays mounted so existing clients keep working.
+app.use('/api/rates', preciousMetalRateRoutes);
 app.use('/api/precious-metal-rates', preciousMetalRateRoutes);
 app.use('/api/audit-log', auditLogRoutes);
 
