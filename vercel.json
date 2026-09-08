@@ -6,6 +6,12 @@
       "includeFiles": "{src/assets/fonts/**,node_modules/pdfkit/js/data/**}"
     }
   },
+  "crons": [
+    {
+      "path": "/api/rates/sync/cron",
+      "schedule": "30 8 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
   ]
