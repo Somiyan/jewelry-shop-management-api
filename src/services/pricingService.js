@@ -83,18 +83,28 @@ async function getCurrentMetalRate(metalType, session) {
   return PreciousMetalRate.findOne({ metalType }).sort({ createdAt: -1 }).session(session || null);
 }
 
-async function getPriceBreakdownForProduct(product, session) {
+/**
+ * Fetches the live rate + pricing rule a product needs to be priced, in one
+ * place — shared by getPriceBreakdownForProduct and saleCalculationService so
+ * "current value" and an adjusted "sale value" for the same product are
+ * always computed against the identical rate/rule pair, never two separate reads.
+ */
+async function fetchRateAndRule(metalType, session) {
   const [currentRate, pricingRule] = await Promise.all([
-    getCurrentMetalRate(product.metalType, session),
-    PricingRule.findOne({ metalType: product.metalType }).session(session || null),
+    getCurrentMetalRate(metalType, session),
+    PricingRule.findOne({ metalType }).session(session || null),
   ]);
-
   if (!currentRate) {
-    throw new Error(`No current metal rate configured for ${product.metalType}`);
+    throw new Error(`No current metal rate configured for ${metalType}`);
   }
   if (!pricingRule) {
-    throw new Error(`No pricing rule configured for ${product.metalType}`);
+    throw new Error(`No pricing rule configured for ${metalType}`);
   }
+  return { currentRate, pricingRule };
+}
+
+async function getPriceBreakdownForProduct(product, session) {
+  const { currentRate, pricingRule } = await fetchRateAndRule(product.metalType, session);
 
   return computePricingBreakdown({
     netWeight: product.netWeight,
@@ -219,8 +229,37 @@ function computeInvoiceTotals(orderItems, orderDiscount = 0) {
   return { subtotal, taxAmount, discount, finalAmount };
 }
 
+/**
+ * Whether a sale is inter-state (IGST) or intra-state (CGST+SGST), by
+ * comparing the shop's own state against the customer's. Case/whitespace
+ * insensitive since these are free-text fields; an unknown customer state is
+ * treated as intra-state (the common case for a single-location shop) rather
+ * than silently applying IGST.
+ */
+function determineIsInterState(shopState, customerState) {
+  if (!customerState) return false;
+  return String(shopState || '').trim().toLowerCase() !== String(customerState).trim().toLowerCase();
+}
+
+/**
+ * Splits a total GST amount into its legally distinct components. Intra-state
+ * splits evenly into CGST+SGST (each half the total rate); inter-state is
+ * IGST in full. Never both — a bill carries either CGST+SGST or IGST.
+ */
+function splitGst(taxAmount, isInterState) {
+  if (isInterState) {
+    return { cgstAmount: 0, sgstAmount: 0, igstAmount: round2(taxAmount) };
+  }
+  const half = round2(taxAmount / 2);
+  // Put any odd paisa on CGST rather than letting cgst+sgst silently miss the total.
+  return { cgstAmount: half, sgstAmount: round2(taxAmount - half), igstAmount: 0 };
+}
+
 module.exports = {
   computeMakingChargeAmount,
+  determineIsInterState,
+  splitGst,
+  fetchRateAndRule,
   computePricingBreakdown,
   getCurrentMetalRate,
   getPriceBreakdownForProduct,

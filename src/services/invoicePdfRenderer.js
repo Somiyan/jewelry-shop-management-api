@@ -174,7 +174,9 @@ function renderInvoicePdf(invoice, res) {
   });
   iy += rowGap;
   text(doc, 'State :', left + 8, iy, { size: 9, bold: true });
-  text(doc, customer.state || '', left + 55, iy, { size: 9, width: infoSplit - left - 63 });
+  const customerGstin = invoice.customerGstin || customer.gstin || '';
+  const stateValue = customerGstin ? `${customer.state || ''}   GSTIN: ${customerGstin}` : customer.state || '';
+  text(doc, stateValue, left + 55, iy, { size: 9, width: infoSplit - left - 63 });
   iy += rowGap;
   text(doc, 'Contact No. :', left + 8, iy, { size: 9, bold: true });
   text(doc, customer.phone || '', left + 78, iy, { size: 9 });
@@ -327,12 +329,35 @@ function renderInvoicePdf(invoice, res) {
     ady += 15;
   });
 
-  // Tax / grand total box.
+  // Tax / grand total box. `billingType`/`isInterState`/cgst-sgst-igst are
+  // absent on invoices created before the GST-aware Sales module existed —
+  // those are treated as the GST + intra-state bills they always were, and
+  // fall back to splitting taxAmount evenly, exactly as this renderer always
+  // did. A Non-GST bill prints one row stating tax does not apply, per the
+  // module's requirement that a Non-GST invoice clearly say so rather than
+  // silently show a zeroed tax line.
   const taxPct = invoice.subtotal ? (invoice.taxAmount / invoice.subtotal) * 100 : 0;
   const halfPct = (taxPct / 2).toFixed(2);
+  const isNonGst = invoice.billingType === 'NON_GST';
+  const isInterState = invoice.billingType === 'GST' && invoice.isInterState === true;
+
+  let gstRows;
+  if (isNonGst) {
+    gstRows = [['GST', 'Not Applicable']];
+  } else if (isInterState) {
+    const igstPct = invoice.subtotal ? ((invoice.igstAmount || invoice.taxAmount) / invoice.subtotal) * 100 : 0;
+    gstRows = [[`IGST ${igstPct.toFixed(2)}%`, invoice.taxAmount ? money(invoice.igstAmount || invoice.taxAmount) : '']];
+  } else {
+    const sgst = invoice.sgstAmount != null ? invoice.sgstAmount : invoice.taxAmount / 2;
+    const cgst = invoice.cgstAmount != null ? invoice.cgstAmount : invoice.taxAmount / 2;
+    gstRows = [
+      [`SGST ${halfPct}%`, invoice.taxAmount ? money(sgst) : ''],
+      [`CGST ${halfPct}%`, invoice.taxAmount ? money(cgst) : ''],
+    ];
+  }
+
   const taxRows = [
-    [`SGST ${halfPct}%`, invoice.taxAmount ? money(invoice.taxAmount / 2) : ''],
-    [`CGST ${halfPct}%`, invoice.taxAmount ? money(invoice.taxAmount / 2) : ''],
+    ...gstRows,
     ['DISCOUNT', invoice.discount ? money(invoice.discount) : ''],
     ['ADVANCE', invoice.paymentStatus === 'partial' ? money(invoice.amountPaid) : ''],
   ];

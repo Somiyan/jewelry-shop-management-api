@@ -16,6 +16,22 @@ const invoiceItemSchema = new mongoose.Schema(
     netWeight: { type: Number },
     ratePerGram: { type: Number },
     labourCharge: { type: Number, default: 0 },
+
+    // Sale-time snapshot for the GST-aware Sales module (see saleCalculationService).
+    // Historical invoices predate these and simply don't carry them — read as
+    // undefined, never backfilled/guessed, since there is no way to know what
+    // a pre-existing invoice's "current value at sale" actually was.
+    currentValueAtSale: { type: Number },
+    defaultMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
+    defaultMakingChargeValue: { type: Number },
+    saleMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
+    saleMakingChargeValue: { type: Number },
+    belowCurrentValueApproval: {
+      approved: { type: Boolean },
+      reason: { type: String },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approvedAt: { type: Date },
+    },
   },
   { _id: false }
 );
@@ -54,6 +70,18 @@ const invoiceSchema = new mongoose.Schema(
     },
     paymentStatus: { type: String, enum: ['pending', 'paid', 'partial'], default: 'pending' },
     amountPaid: { type: Number, default: 0 },
+
+    // GST vs Non-GST billing (see saleCalculationService / salesPolicy config).
+    // Absent on invoices created before this existed — treated as GST for
+    // display purposes only (that was the only kind of bill this app produced).
+    billingType: { type: String, enum: ['GST', 'NON_GST'] },
+    customerGstin: { type: String, trim: true, default: '' },
+    shopGstin: { type: String, trim: true, default: '' },
+    isInterState: { type: Boolean, default: false },
+    cgstAmount: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
+
     oldGoldExchange: { type: oldGoldExchangeSchema, default: undefined },
     notes: { type: String, default: '' },
   },

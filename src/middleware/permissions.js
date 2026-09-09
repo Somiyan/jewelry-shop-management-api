@@ -19,6 +19,9 @@ const PERMISSIONS = {
   VIEW_PAYMENT_HISTORY: 'VIEW_PAYMENT_HISTORY',
   EDIT_PAYMENT: 'EDIT_PAYMENT',
   REVERSE_PAYMENT: 'REVERSE_PAYMENT',
+
+  ADJUST_MAKING_CHARGES: 'ADJUST_MAKING_CHARGES',
+  APPROVE_BELOW_VALUE_SALE: 'APPROVE_BELOW_VALUE_SALE',
 };
 
 const ROLE_PERMISSIONS = {
@@ -35,9 +38,13 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.VIEW_PAYMENT_HISTORY,
     PERMISSIONS.EDIT_PAYMENT,
     PERMISSIONS.REVERSE_PAYMENT,
+    PERMISSIONS.ADJUST_MAKING_CHARGES,
+    PERMISSIONS.APPROVE_BELOW_VALUE_SALE,
   ],
   // Staff work the counter: they can see balances/history and take a payment,
-  // but correcting or voiding one is reserved for manager/admin.
+  // but correcting or voiding one is reserved for manager/admin. Same for
+  // negotiating a making charge or approving a below-value sale — both move
+  // real margin and need a second pair of eyes.
   staff: [
     PERMISSIONS.VIEW_RATES,
     PERMISSIONS.VIEW_RATE_HISTORY,
