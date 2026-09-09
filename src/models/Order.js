@@ -23,6 +23,23 @@ const orderItemSchema = new mongoose.Schema(
     netWeight: { type: Number },
     ratePerGram: { type: Number },
 
+    // ---- GST-aware Sales module price snapshot (see saleCalculationService) ----
+    // Distinct from makingChargeType/Value below, which are reserved for the
+    // custom-order quoted-terms workflow — these are for a stock-item sale,
+    // where "default" is the Product's own configured making charge and
+    // "sale" is what a salesperson may have negotiated for this transaction.
+    currentValueAtSale: { type: Number },
+    defaultMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
+    defaultMakingChargeValue: { type: Number },
+    saleMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
+    saleMakingChargeValue: { type: Number },
+    belowCurrentValueApproval: {
+      approved: { type: Boolean },
+      reason: { type: String },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approvedAt: { type: Date },
+    },
+
     // ---- Custom / made-to-order workflow fields ----
     // Coexists with the stock-linked shape above; when isCustomOrder is true
     // there is no Product yet (productId stays unset until conversion).
@@ -78,6 +95,13 @@ const orderSchema = new mongoose.Schema(
     totalAmount: { type: Number, required: true, default: 0 },
     discount: { type: Number, default: 0 },
     notes: { type: String, default: '' },
+
+    // GST vs Non-GST billing selected at sale time (see salesPolicy config).
+    billingType: { type: String, enum: ['GST', 'NON_GST'] },
+    isInterState: { type: Boolean, default: false },
+    cgstAmount: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
     // Advance/token payments taken against a made-to-order (or any) order.
     // Insert-only ledger — a customer may pay a token in several installments
     // while a piece is being manufactured, so this is never a single snapshot

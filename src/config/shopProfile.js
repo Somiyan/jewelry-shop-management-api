@@ -14,6 +14,9 @@ module.exports = {
     .filter(Boolean),
   phone: process.env.SHOP_PHONE || '',
   gstin: process.env.SHOP_GSTIN || '',
+  // Used only to decide CGST+SGST (intra-state) vs IGST (inter-state) on a
+  // GST bill — compared against the customer's own state at sale time.
+  state: process.env.SHOP_STATE || 'Maharashtra',
   hallmarkLabel: process.env.SHOP_HALLMARK_LABEL || 'BIS 916 Hallmark Jewellery',
   bank: {
     accountName: process.env.SHOP_BANK_ACCOUNT_NAME || '',
