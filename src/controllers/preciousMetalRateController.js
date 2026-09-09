@@ -39,6 +39,7 @@ const getCurrentRates = asyncHandler(async (req, res) => {
  */
 const getLiveRates = asyncHandler(async (req, res) => {
   try {
+    console.log('Previewing live rates...')
     const preview = await previewLiveRates({ city: req.query.city });
     res.json(preview);
   } catch (err) {
