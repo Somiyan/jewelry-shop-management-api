@@ -13,4 +13,4 @@ npm-debug.log*
 .DS_Store
 
 .claude
-
+.env_prod
