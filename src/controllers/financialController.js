@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const FinancialTransaction = require('../models/FinancialTransaction');
+const Payment = require('../models/Payment');
 const Invoice = require('../models/Invoice');
 const Product = require('../models/Product');
 const { getPriceBreakdownForProduct } = require('../services/pricingService');
@@ -18,7 +19,15 @@ const getDashboard = asyncHandler(async (req, res) => {
   const todayStart = startOfDay(now);
   const monthStart = startOfMonth(now);
 
-  const [dailySalesAgg, monthlySalesAgg, totalExpensesAgg, invoiceCount] = await Promise.all([
+  const [
+    dailySalesAgg,
+    monthlySalesAgg,
+    totalExpensesAgg,
+    invoiceCount,
+    outstandingAgg,
+    collectedTodayAgg,
+    totalCollectedAgg,
+  ] = await Promise.all([
     FinancialTransaction.aggregate([
       { $match: { type: 'sale', date: { $gte: todayStart } } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
@@ -32,6 +41,44 @@ const getDashboard = asyncHandler(async (req, res) => {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]),
     Invoice.countDocuments(),
+    // Per-invoice outstanding, clamped at 0 before summing — an invoice that
+    // somehow over-collected is a credit, not negative debt cancelling out
+    // another customer's real balance.
+    Invoice.aggregate([
+      {
+        $lookup: {
+          from: 'payments',
+          let: { invoiceId: '$_id' },
+          pipeline: [{ $match: { $expr: { $and: [{ $eq: ['$invoiceId', '$$invoiceId'] }, { $eq: ['$status', 'ACTIVE'] }] } } }],
+          as: 'activePayments',
+        },
+      },
+      {
+        $addFields: {
+          paid: { $sum: '$activePayments.amount' },
+        },
+      },
+      {
+        $addFields: {
+          outstanding: { $max: [0, { $subtract: ['$finalAmount', '$paid'] }] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalOutstanding: { $sum: '$outstanding' },
+          pendingInvoices: { $sum: { $cond: [{ $gt: ['$outstanding', 0] }, 1, 0] } },
+        },
+      },
+    ]),
+    Payment.aggregate([
+      { $match: { status: 'ACTIVE', date: { $gte: todayStart } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+    Payment.aggregate([
+      { $match: { status: 'ACTIVE' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
   ]);
 
   const dailySales = dailySalesAgg[0]?.total || 0;
@@ -45,6 +92,12 @@ const getDashboard = asyncHandler(async (req, res) => {
     monthlyExpenses,
     profitMargin: Math.round(profitMargin * 100) / 100,
     totalInvoices: invoiceCount,
+    // Derived from Invoice + Payment records, same as every other balance in
+    // this module — never a separately maintained running total.
+    totalOutstanding: outstandingAgg[0]?.totalOutstanding || 0,
+    pendingInvoices: outstandingAgg[0]?.pendingInvoices || 0,
+    collectedToday: collectedTodayAgg[0]?.total || 0,
+    totalCollected: totalCollectedAgg[0]?.total || 0,
   });
 });
 
