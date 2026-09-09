@@ -74,7 +74,7 @@ function toInvoiceItem(orderItem) {
 
 /**
  * POST /api/sales/calculate
- *
+ * 
  * The Sales module's live pricing preview: prices every line (current value
  * at the product's own default making charge, and the sale price at whatever
  * making charge is being applied), applies the chosen billing type, and
