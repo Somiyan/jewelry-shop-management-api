@@ -8,6 +8,7 @@ const StockTransaction = require('../models/StockTransaction');
 const FinancialTransaction = require('../models/FinancialTransaction');
 const { buildLineItem, buildInvoiceLineFromOrderItem, computeInvoiceTotals, round2 } = require('../services/pricingService');
 const { applySaleToOrders } = require('../services/orderLifecycleService');
+const { recordPayment } = require('../services/paymentService');
 
 const PAYMENT_METHODS = ['cash', 'card', 'upi', 'cheque', 'bank-transfer', 'other'];
 const COMM_PREFS = ['sms', 'email', 'whatsapp'];
@@ -180,10 +181,6 @@ const checkout = asyncHandler(async (req, res) => {
         orderDiscount
       );
 
-      let paymentStatus = 'pending';
-      if (amountPaid >= finalAmount) paymentStatus = 'paid';
-      else if (amountPaid > 0) paymentStatus = 'partial';
-
       const effectiveBillingAddress = billingAddress || customer.address;
       const invoiceNotesParts = [];
       if (notes) invoiceNotesParts.push(notes);
@@ -206,8 +203,8 @@ const checkout = asyncHandler(async (req, res) => {
             taxAmount,
             finalAmount,
             paymentMethod: payment.method,
-            paymentStatus,
-            amountPaid,
+            paymentStatus: 'pending',
+            amountPaid: 0,
             notes: invoiceNotesParts.join(' | '),
             oldGoldExchange: hasOldGold
               ? {
@@ -237,6 +234,27 @@ const checkout = asyncHandler(async (req, res) => {
         ],
         { session }
       );
+
+      // Whatever the customer paid at the register becomes the invoice's
+      // first ledger entry — recordPayment is the one place that derives
+      // amountPaid/paymentStatus, so checkout never duplicates that logic.
+      if (amountPaid > 0) {
+        try {
+          const paymentResult = await recordPayment({
+            invoiceId: invoice._id,
+            amount: amountPaid,
+            method: payment.method,
+            reference: payment.reference || '',
+            notes: 'Recorded at checkout',
+            userId: req.user && req.user._id,
+            session,
+          });
+          invoice = paymentResult.invoice;
+        } catch (err) {
+          res.status(err.status || 400);
+          throw err;
+        }
+      }
     });
   } finally {
     await session.endSession();

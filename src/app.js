@@ -17,6 +17,7 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const preciousMetalRateRoutes = require('./routes/preciousMetalRateRoutes');
 const auditLogRoutes = require('./routes/auditLogRoutes');
 const healthRoutes = require('./routes/healthRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -38,6 +39,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/financial', financialRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/sales', salesRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/categories', categoryRoutes);
 // Same router on both paths: /api/rates is the documented surface, while
 // /api/precious-metal-rates stays mounted so existing clients keep working.

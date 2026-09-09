@@ -12,7 +12,8 @@
     "dev": "nodemon src/server.js",
     "seed": "node src/utils/seed.js",
     "test": "node --test \"test/**/*.test.js\"",
-    "backfill:rates": "node src/utils/backfillRateProvenance.js"
+    "backfill:rates": "node src/utils/backfillRateProvenance.js",
+    "backfill:payments": "node src/utils/backfillInvoicePayments.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
