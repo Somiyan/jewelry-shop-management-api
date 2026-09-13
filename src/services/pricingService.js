@@ -230,6 +230,23 @@ function computeInvoiceTotals(orderItems, orderDiscount = 0) {
 }
 
 /**
+ * The Sales module's making-charge formula: applied on top of the product's
+ * own Current Cost (see computePricingBreakdown's `currentCost` — wastage-
+ * inclusive, the exact figure the Product page shows), never recomputed from
+ * scratch. This is deliberately a DIFFERENT formula from
+ * computeMakingChargeAmount above (which scales off raw weight x rate,
+ * ignoring purity/wastage, and backs the Product/Stock pages' own listed
+ * price) — the two must not be conflated. Percentage mode here is simply
+ * value% of Current Cost; per-gram mode is unchanged (weight x rate/gram).
+ */
+function computeMakingChargeOnCurrentCost({ currentCost, netWeight, makingChargeType, makingChargeValue }) {
+  if (makingChargeType === 'per_gram') {
+    return netWeight * (makingChargeValue || 0);
+  }
+  return currentCost * ((makingChargeValue || 0) / 100);
+}
+
+/**
  * Whether a sale is inter-state (IGST) or intra-state (CGST+SGST), by
  * comparing the shop's own state against the customer's. Case/whitespace
  * insensitive since these are free-text fields; an unknown customer state is
@@ -257,6 +274,7 @@ function splitGst(taxAmount, isInterState) {
 
 module.exports = {
   computeMakingChargeAmount,
+  computeMakingChargeOnCurrentCost,
   determineIsInterState,
   splitGst,
   fetchRateAndRule,

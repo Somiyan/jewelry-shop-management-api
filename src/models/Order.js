@@ -28,12 +28,12 @@ const orderItemSchema = new mongoose.Schema(
     // custom-order quoted-terms workflow — these are for a stock-item sale,
     // where "default" is the Product's own configured making charge and
     // "sale" is what a salesperson may have negotiated for this transaction.
-    currentValueAtSale: { type: Number },
+    currentCostAtSale: { type: Number },
     defaultMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
     defaultMakingChargeValue: { type: Number },
     saleMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
     saleMakingChargeValue: { type: Number },
-    belowCurrentValueApproval: {
+    belowCurrentCostApproval: {
       approved: { type: Boolean },
       reason: { type: String },
       approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

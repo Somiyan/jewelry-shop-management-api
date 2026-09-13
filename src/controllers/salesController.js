@@ -32,7 +32,7 @@ function toOrderItem(line) {
     purity: line.purity,
     weightGrams: line.weightGrams,
     quantity: line.quantity,
-    spotPrice: line.productValue,
+    spotPrice: line.currentCost,
     markup: line.makingChargeAmount,
     laborCost: 0,
     tax: line.tax,
@@ -42,7 +42,7 @@ function toOrderItem(line) {
     grossWeight: line.grossWeight,
     netWeight: line.netWeight,
     ratePerGram: line.ratePerGram,
-    currentValueAtSale: line.currentValue,
+    currentCostAtSale: line.currentCost,
     defaultMakingChargeType: line.defaultMakingChargeType,
     defaultMakingChargeValue: line.defaultMakingChargeValue,
     saleMakingChargeType: line.saleMakingChargeType,
@@ -64,7 +64,7 @@ function toInvoiceItem(orderItem) {
     netWeight: orderItem.netWeight,
     ratePerGram: orderItem.ratePerGram,
     labourCharge: orderItem.markup,
-    currentValueAtSale: orderItem.currentValueAtSale,
+    currentCostAtSale: orderItem.currentCostAtSale,
     defaultMakingChargeType: orderItem.defaultMakingChargeType,
     defaultMakingChargeValue: orderItem.defaultMakingChargeValue,
     saleMakingChargeType: orderItem.saleMakingChargeType,
@@ -75,10 +75,10 @@ function toInvoiceItem(orderItem) {
 /**
  * POST /api/sales/calculate
  * 
- * The Sales module's live pricing preview: prices every line (current value
- * at the product's own default making charge, and the sale price at whatever
- * making charge is being applied), applies the chosen billing type, and
- * reports a structured below-current-value warning per line. Read-only — no
+ * The Sales module's live pricing preview: prices every line (Current Cost —
+ * the Product's own wastage-inclusive cost, unaffected by making charge —
+ * plus the making charge actually being applied), applies the chosen billing
+ * type, and reports a structured below-current-cost warning per line. Read-only — no
  * stock, order, invoice or payment is touched. Checkout below calls this
  * exact same function for its own server-side recalculation, so a preview
  * can never show a number checkout would then charge differently.
@@ -218,7 +218,7 @@ const checkout = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  // ---- below-current-value gate ----
+  // ---- below-current-cost gate ----
   // A confirmation step by default (ALLOW_BELOW_CURRENT_PRICE_SALE=true): any
   // salesperson may continue once they've explicitly acknowledged it. When
   // that flag is false, only a user holding APPROVE_BELOW_VALUE_SALE can.
@@ -228,21 +228,21 @@ const checkout = asyncHandler(async (req, res) => {
     const approvalRequired = !salesPolicy.allowBelowCurrentPriceSale;
     if (approvalRequired && !canApproveBelowValue) {
       res.status(403);
-      const err = new Error('This sale includes items below their current value and requires manager approval');
+      const err = new Error('This sale includes items below their current cost and requires manager approval');
       err.warnings = calculated.warnings;
       err.requiresApproval = true;
       throw err;
     }
     if (!belowValueApproval || belowValueApproval.approved !== true) {
       res.status(409);
-      const err = new Error('One or more items are priced below their current value — confirmation required');
+      const err = new Error('One or more items are priced below their current cost — confirmation required');
       err.warnings = calculated.warnings;
       err.requiresApproval = approvalRequired;
       throw err;
     }
     if (approvalRequired && !String(belowValueApproval.reason || '').trim()) {
       res.status(400);
-      throw new Error('A reason is required to approve a below-current-value sale');
+      throw new Error('A reason is required to approve a below-current-cost sale');
     }
   }
 
@@ -405,14 +405,14 @@ const checkout = asyncHandler(async (req, res) => {
         auditEntries.push({
           entity: 'Sale',
           entityId: order._id,
-          field: 'belowCurrentValueApproval',
+          field: 'belowCurrentCostApproval',
           oldValue: null,
           newValue: {
             approved: true,
             reason: belowValueApproval && belowValueApproval.reason ? String(belowValueApproval.reason).trim() : '',
             items: calculated.warnings.map((w) => ({
               productId: w.productId,
-              currentValue: w.currentValue,
+              currentCost: w.currentCost,
               sellingValue: w.sellingValue,
               difference: w.difference,
             })),
@@ -420,7 +420,7 @@ const checkout = asyncHandler(async (req, res) => {
           userId: req.user && req.user._id,
           reason:
             (belowValueApproval && belowValueApproval.reason && String(belowValueApproval.reason).trim()) ||
-            'Sale below current value confirmed',
+            'Sale below current cost confirmed',
         });
       }
       if (auditEntries.length > 0) {

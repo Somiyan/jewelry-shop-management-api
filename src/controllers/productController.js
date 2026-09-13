@@ -78,7 +78,7 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const listProducts = asyncHandler(async (req, res) => {
-  const { metalType, type, q } = req.query;
+  const { metalType, type, q, inStock } = req.query;
   const filter = {};
   if (metalType) filter.metalType = metalType;
   if (type) filter.type = type;
@@ -86,8 +86,18 @@ const listProducts = asyncHandler(async (req, res) => {
     const re = new RegExp(q, 'i');
     filter.$or = [{ name: re }, { sku: re }, { barcode: re }, { category: re }];
   }
+  // Opt-in: Stock/Product management still needs to see out-of-stock items
+  // (that's how you find what to restock), so this only excludes them when a
+  // caller explicitly asks — e.g. the Sales module's product picker, where an
+  // out-of-stock item can't actually be sold and computing its price is
+  // wasted work.
+  if (inStock === 'true') filter.quantity = { $gt: 0 };
   const products = await Product.find(filter).sort({ createdAt: -1 });
   const withPrices = await Promise.all(products.map(withPrice));
+  // In-stock products first (e.g. for the Sales module's product picker, where
+  // an out-of-stock item can't actually be sold) — a stable sort, so newest-
+  // first ordering is preserved within each of the two groups.
+  withPrices.sort((a, b) => (a.quantity > 0 ? 0 : 1) - (b.quantity > 0 ? 0 : 1));
   res.json(withPrices);
 });
 
