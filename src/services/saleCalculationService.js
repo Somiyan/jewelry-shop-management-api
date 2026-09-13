@@ -1,6 +1,7 @@
 const Product = require('../models/Product');
 const {
   computePricingBreakdown,
+  computeMakingChargeOnCurrentCost,
   fetchRateAndRule,
   determineIsInterState,
   splitGst,
@@ -16,12 +17,16 @@ const shopProfile = require('../config/shopProfile');
  * recalculation call, so a preview can never show the customer a number the
  * backend would then charge them something different for.
  *
- * Two prices are computed per line, from the SAME rate/rule snapshot:
- *  - "current value"  — the product's own configured/default making charge.
- *    This is what item 9 means by "current product price": what this exact
- *    piece is worth right now, not what it originally cost to buy in.
- *  - "sale"            — the making charge actually being applied to this
- *    sale, which may be a salesperson's negotiated override.
+ * The pricing pipeline, per line:
+ *   Current Cost  (Product's own wastage-inclusive cost, unchanged by anything here)
+ *     + Making Charge  (percentage of Current Cost, or a flat ₹/gram)
+ *     = Selling Price  (- this line's own discount)
+ *
+ * Current Cost is fetched via computePricingBreakdown — the SAME calculation
+ * the Product page's own "Current Cost" field uses — never recomputed
+ * differently here, so Product and Cart always show an identical figure for
+ * the same product. Making charge is applied exactly once, on top of it;
+ * Current Cost itself carries no making charge, so there is no double-count.
  */
 async function calculateSaleLine({ product, quantity, discount = 0, makingChargeOverride }, session) {
   const { currentRate, pricingRule } = await fetchRateAndRule(product.metalType, session);
@@ -31,7 +36,11 @@ async function calculateSaleLine({ product, quantity, discount = 0, makingCharge
   const defaultMakingChargeType = product.makingChargeType || 'percentage';
   const defaultMakingChargeValue = product.makingChargeValue || 0;
 
-  const currentValueBreakdown = computePricingBreakdown({
+  // Current Cost only depends on weight/purity/wastage/rate — never on making
+  // charge — so one call (at the product's default terms) is all that's
+  // needed to get it; computing it twice for "default" vs "sale" would just
+  // recompute the identical number.
+  const productPricing = computePricingBreakdown({
     netWeight: product.netWeight,
     purity: product.purity,
     wastagePercentage: product.wastagePercentage || 0,
@@ -42,38 +51,32 @@ async function calculateSaleLine({ product, quantity, discount = 0, makingCharge
     currentMetalRate: currentRate.ratePerGram,
     taxPercentage,
   });
+  const currentCostPerUnit = productPricing.currentCost;
 
   const saleMakingChargeType = makingChargeOverride?.type || defaultMakingChargeType;
   const saleMakingChargeValue =
     makingChargeOverride?.value != null ? Number(makingChargeOverride.value) : defaultMakingChargeValue;
 
-  const saleBreakdown = computePricingBreakdown({
+  const makingChargeAmountPerUnit = computeMakingChargeOnCurrentCost({
+    currentCost: currentCostPerUnit,
     netWeight: product.netWeight,
-    purity: product.purity,
-    wastagePercentage: product.wastagePercentage || 0,
     makingChargeType: saleMakingChargeType,
     makingChargeValue: saleMakingChargeValue,
-    purchaseMetalRate: product.purchaseMetalRate,
-    purchaseCost: product.purchaseCost,
-    currentMetalRate: currentRate.ratePerGram,
-    taxPercentage,
   });
 
-  // Line-level figures, pre-tax (GST is decided at the invoice level by
-  // billing type — see calculateSale). `sellingPrice` is what the customer
-  // is actually charged for this line, after its own line discount.
-  const productValue = round2(saleBreakdown.basePrice * lineQuantity);
-  const makingChargeAmount = round2(saleBreakdown.makingChargeAmount * lineQuantity);
+  const currentCost = round2(currentCostPerUnit * lineQuantity);
+  const makingChargeAmount = round2(makingChargeAmountPerUnit * lineQuantity);
   const lineDiscount = Math.max(0, Number(discount) || 0);
-  const grossSellingPrice = round2(productValue + makingChargeAmount);
-  const sellingPrice = round2(Math.max(0, grossSellingPrice - lineDiscount));
-  const lineTax = round2(saleBreakdown.tax * lineQuantity);
+  const calculatedSellingPrice = round2(currentCost + makingChargeAmount);
+  const sellingPrice = round2(Math.max(0, calculatedSellingPrice - lineDiscount));
+  // GST is decided at the invoice level by billing type (see calculateSale);
+  // this is this line's own pre-discount-ratio share of it.
+  const lineTax = round2(sellingPrice * (taxPercentage / 100));
 
-  const currentValue = round2(currentValueBreakdown.subtotal * lineQuantity);
-  const difference = round2(sellingPrice - currentValue);
-  const marginPercent = currentValue > 0 ? round2((difference / currentValue) * 100) : 0;
-  // A paisa of rounding dust must never itself trigger a below-value warning.
-  const belowCurrentValue = difference < -0.01;
+  const difference = round2(sellingPrice - currentCost);
+  const marginPercent = currentCost > 0 ? round2((difference / currentCost) * 100) : 0;
+  // A paisa of rounding dust must never itself trigger a below-cost warning.
+  const belowCurrentCost = difference < -0.01;
 
   return {
     productId: product._id,
@@ -88,8 +91,7 @@ async function calculateSaleLine({ product, quantity, discount = 0, makingCharge
     goldRate: currentRate.ratePerGram,
     ratePerGram: currentRate.ratePerGram,
 
-    currentValue,
-    productValue,
+    currentCost,
     defaultMakingChargeType,
     defaultMakingChargeValue,
     saleMakingChargeType,
@@ -97,20 +99,21 @@ async function calculateSaleLine({ product, quantity, discount = 0, makingCharge
     makingChargeAdjusted: saleMakingChargeType !== defaultMakingChargeType || saleMakingChargeValue !== defaultMakingChargeValue,
     makingChargeAmount,
     discount: lineDiscount,
+    calculatedSellingPrice,
     sellingPrice,
     tax: lineTax,
 
     difference,
     marginPercent,
-    belowCurrentValue,
+    belowCurrentCost,
   };
 }
 
 /**
  * Full-sale calculation: prices every line, applies billing type (GST split
- * or none), and reports a structured below-value warning per line rather
- * than one generic invoice-level flag — per-item, because a mixed cart can
- * have some lines above and some below their current value at once.
+ * or none), and reports a structured below-cost warning per line rather than
+ * one generic invoice-level flag — per-item, because a mixed cart can have
+ * some lines above and some below their current cost at once.
  *
  * `canAdjustMakingCharge` is enforced HERE, not trusted from the caller: an
  * override from a user without ADJUST_MAKING_CHARGES is dropped and flagged,
@@ -154,7 +157,7 @@ async function calculateSale({
     lines.push({ ...line, makingChargeOverrideIgnored: overrideIgnored });
   }
 
-  const productValueTotal = round2(lines.reduce((sum, l) => sum + l.productValue, 0));
+  const currentCostTotal = round2(lines.reduce((sum, l) => sum + l.currentCost, 0));
   const makingChargeTotal = round2(lines.reduce((sum, l) => sum + l.makingChargeAmount, 0));
   const lineDiscountTotal = round2(lines.reduce((sum, l) => sum + l.discount, 0));
   const subtotal = round2(lines.reduce((sum, l) => sum + l.sellingPrice, 0));
@@ -163,10 +166,10 @@ async function calculateSale({
   const taxableAmount = round2(Math.max(0, subtotal - effectiveOrderDiscount));
 
   // Order-level discount is applied before tax (per this module's calculation
-  // sequence — see item 18), so each line's own tax is scaled down by the same
-  // ratio the discount reduced the overall subtotal. This keeps GST
-  // proportional to what the customer is actually being taxed on while still
-  // respecting each line's own metal-specific tax rate.
+  // sequence), so each line's own tax is scaled down by the same ratio the
+  // discount reduced the overall subtotal. This keeps GST proportional to
+  // what the customer is actually being taxed on while still respecting each
+  // line's own metal-specific tax rate.
   const discountRatio = subtotal > 0 ? taxableAmount / subtotal : 1;
   const rawTaxTotal = round2(lines.reduce((sum, l) => sum + l.tax, 0) * discountRatio);
 
@@ -194,12 +197,12 @@ async function calculateSale({
   }
 
   const warnings = lines
-    .filter((l) => l.belowCurrentValue)
+    .filter((l) => l.belowCurrentCost)
     .map((l) => ({
-      warning: 'SELLING_BELOW_CURRENT_VALUE',
+      warning: 'SELLING_BELOW_CURRENT_COST',
       productId: l.productId,
       productName: l.name,
-      currentValue: l.currentValue,
+      currentCost: l.currentCost,
       sellingValue: l.sellingPrice,
       difference: l.difference,
       requiresApproval: !salesPolicy.allowBelowCurrentPriceSale,
@@ -211,7 +214,7 @@ async function calculateSale({
     shopGstin: shopProfile.gstin,
     shopState: shopProfile.state,
     lines,
-    productValueTotal,
+    currentCostTotal,
     makingChargeTotal,
     lineDiscountTotal,
     subtotal,

@@ -20,13 +20,13 @@ const invoiceItemSchema = new mongoose.Schema(
     // Sale-time snapshot for the GST-aware Sales module (see saleCalculationService).
     // Historical invoices predate these and simply don't carry them — read as
     // undefined, never backfilled/guessed, since there is no way to know what
-    // a pre-existing invoice's "current value at sale" actually was.
-    currentValueAtSale: { type: Number },
+    // a pre-existing invoice's "current cost at sale" actually was.
+    currentCostAtSale: { type: Number },
     defaultMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
     defaultMakingChargeValue: { type: Number },
     saleMakingChargeType: { type: String, enum: ['percentage', 'per_gram'] },
     saleMakingChargeValue: { type: Number },
-    belowCurrentValueApproval: {
+    belowCurrentCostApproval: {
       approved: { type: Boolean },
       reason: { type: String },
       approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
